@@ -22,6 +22,17 @@ class Position3D:
         roll (float): Roll angle in degrees (rotation around X-axis)
         pitch (float): Pitch angle in degrees (rotation around Y-axis)
         yaw (float): Yaw angle in degrees (rotation around Z-axis)
+
+    >>> p1 = Position3D(0, 0, 0)
+    >>> p2 = Position3D(3, 4, 0)
+    >>> p1.distance_to(p2)
+    5.0
+    >>> tuple(round(x, 2) for x in p1.direction_to(p2))
+    (0.0, 0.0, 53.13)
+    >>> p1 = Position3D(0, 0, 0, 0, 0, 0)
+    >>> p2 = Position3D(10, 0, 0)
+    >>> p1.is_within_field_of_view(p2, 120, 90)
+    True
     """
     def __init__(self, x: float = 0.0, y: float = 0.0, z: float = 0.0,
                  roll: float = 0.0, pitch: float = 0.0, yaw: float = 0.0):
@@ -139,6 +150,19 @@ class Sensor:
         position (Position3D): Sensor's position and orientation
         range (float): Maximum detection range in meters
         id (str): Unique identifier for the sensor
+
+    >>> pos = Position3D(0, 0, 0)
+    >>> target = Position3D(0, 30, 0)
+    >>> sensor = Sensor("GenericSensor", "custom", pos, range=50)
+    >>> sensor.can_detect(target)
+    True
+
+    >>> target_far = Position3D(0, 100, 0)
+    >>> sensor.can_detect(target_far)
+    False
+
+    >>> str(sensor)  # doctest: +ELLIPSIS
+    " 'GenericSensor' at Position3D(x=0.00, y=0.00, z=0.00, roll=0.00°, pitch=0.00°, yaw=0.00°) "
     """
     def __init__(self, name: str, sensor_type: str, position: Position3D, range: float):
         self.name = name
@@ -171,6 +195,12 @@ class Camera(Sensor):
     Attributes:
         resolution (Tuple[int, int]): Camera resolution (width, height)
         fov (float): Horizontal field of view in degrees
+
+    >>> cam_pos = Position3D(0, 0, 0, 0, 0, 0)
+    >>> cam = Camera("FrontCam", cam_pos, range=100, resolution=(1920, 1080), fov=90)
+    >>> target = Position3D(10, 0, 0)
+    >>> cam.can_detect(target)
+    True
     """
     def __init__(self, name: str, position: Position3D, range: float,
                  resolution: Tuple[int, int], fov: float):
@@ -206,6 +236,12 @@ class Lidar(Sensor):
     Attributes:
         horizontal_fov (float): Horizontal field of view in degrees
         vertical_fov (float): Vertical field of view in degrees
+
+    >>> cam_pos = Position3D(0, 0, 0, 0, 0, 0)
+    >>> target = Position3D(10, 0, 0)
+    >>> lidar = Lidar("LidarTop", cam_pos, range=100, horizontal_fov=360, vertical_fov=60)
+    >>> lidar.can_detect(target)
+    True
     """
     def __init__(self, name: str, position: Position3D, range: float,
                  horizontal_fov: float, vertical_fov: float):
@@ -239,6 +275,12 @@ class Radar(Sensor):
     Attributes:
         fov (float): Field of view in degrees
         resolution (str): Resolution quality (low, medium, high)
+
+    >>> cam_pos = Position3D(0, 0, 0, 0, 0, 0)
+    >>> target = Position3D(10, 0, 0)
+    >>> radar = Radar("RadarFront", cam_pos, range=100, fov=120)
+    >>> radar.can_detect(target)
+    True
     """
     def __init__(self, name: str, position: Position3D, range: float,
                  fov: float):
@@ -272,6 +314,32 @@ class VehicleSensorSystem:
 
     Attributes:
         sensors (Dict[str, Sensor]): Dictionary of sensors by name
+
+    >>> vss = VehicleSensorSystem()
+    >>> cam_pos = Position3D(0, 0, 0, 0, 0, 0)
+    >>> cam = Camera("FrontCam", cam_pos, range=100, resolution=(1920, 1080), fov=90)
+    >>> target = Position3D(10, 0, 0)
+    >>> lidar = Lidar("LidarTop", cam_pos, range=100, horizontal_fov=360, vertical_fov=30)
+    >>> radar = Radar("RadarFront", cam_pos, range=100, fov=120)
+    >>> vss.add_sensor(cam)
+    >>> vss.add_sensor(lidar)
+    >>> vss.add_sensor(radar)
+    >>> sorted(vss.detect_target(target).items())  # ensures stable comparison
+    [('FrontCam', True), ('LidarTop', True), ('RadarFront', True)]
+    >>> config = {
+    ...     "FrontCam": {
+    ...         "type": "camera",
+    ...         "position": [0, 0, 0],
+    ...         "orientation": [0, 0, 0],
+    ...         "range": 100,
+    ...         "resolution": [1920, 1080],
+    ...         "field_of_view": 90
+    ...     }
+    ... }
+    >>> vss2 = VehicleSensorSystem()
+    >>> vss2.from_configuration(config)
+    >>> vss2.get_sensor("FrontCam").type
+    'camera'
     """
     def __init__(self):
         self.sensors = {}
@@ -796,7 +864,7 @@ class SensorConfigFactory:
         valid_types = ["generic_av", "tesla_vision", "mercedes_drive_pilot"]
         if config_type not in valid_types:
             raise ValueError(f"Invalid config_type: {config_type}. Must be one of {valid_types}")
-            
+
         if config_type == "tesla_vision":
             return SensorConfigFactory.create_tesla_vision_config()
         elif config_type == "mercedes_drive_pilot":
@@ -813,10 +881,10 @@ class SimulationUtils:
     def convert_sensor_config_to_list(sensor_config):
         """
         Convert dictionary sensor config to list format for simulation.
-        
+
         Args:
             sensor_config (dict): Dictionary containing sensor configurations
-            
+
         Returns:
             list: List of sensor configurations in the format expected by simulation functions
         """
@@ -830,17 +898,17 @@ class SimulationUtils:
                 'fov': config.get('field_of_view', config.get('horizontal_fov', 120)),
                 'orientation': tuple(config['orientation'])
             }
-            
+
             # Add sensor-specific parameters
             if config['type'] == 'lidar' and 'k' in config:
                 sensor_dict['k'] = config['k']
-                
+
             if config['type'] == 'radar':
                 if 'a' in config:
                     sensor_dict['a'] = config['a']
                 if 'd0' in config:
                     sensor_dict['d0'] = config['d0']
-                    
+
             sensor_configs.append(sensor_dict)
         return sensor_configs
 
@@ -848,13 +916,13 @@ class SimulationUtils:
     def generate_valid_coordinate(min_val, max_val, exclusion_min, exclusion_max):
         """
         Generate a random coordinate that is outside the exclusion range.
-        
+
         Args:
             min_val (float): Minimum allowed value
             max_val (float): Maximum allowed value
             exclusion_min (float): Minimum value of exclusion range
             exclusion_max (float): Maximum value of exclusion range
-            
+
         Returns:
             float: A random coordinate outside the exclusion range
         """
@@ -885,13 +953,13 @@ class SimulationUtils:
 
         for _ in range(num_objects):
             obj_type = random.choices(object_types, weights=object_type_weights, k=1)[0]
-            
+
             # Generate valid x coordinate (outside the range [-2.7, 2.7])
             x = SimulationUtils.generate_valid_coordinate(-40, 150, -2.7, 2.7)
-            
+
             # Generate valid y coordinate (outside the range [-1, 1])
             y = SimulationUtils.generate_valid_coordinate(-40, 40, -1, 1)
-            
+
             z = 1
 
             objects.append({
@@ -911,13 +979,13 @@ class SimulationUtils:
         - Sensor noise.
         - Sensor dropout.
         - Environmental conditions (fog).
-        
+
         Args:
             sensor (dict): Sensor configuration
             obj (dict): Object to detect
             visibility_factor (float): Factor affecting visibility (1.0 = normal)
             environment_conditions (dict): Environmental conditions like fog density
-            
+
         Returns:
             float: Detection probability (0.0 to 1.0)
         """
@@ -971,7 +1039,7 @@ class SimulationUtils:
 
             if abs(relative_vertical) > vertical_fov / 2:
                 return 0.0
-                
+
         # --- Base Detection Probability by Sensor Type ---
         sensor_type = sensor['type'].lower()
 
@@ -1069,13 +1137,13 @@ class SimulationUtils:
     def sensor_fusion_detection(sensors, obj, all_objects, environment_conditions=None):
         """
         Perform sensor fusion to detect an object.
-        
+
         Args:
             sensors (list): List of sensor configurations
             obj (dict): Object to detect
             all_objects (list): All objects in the simulation
             environment_conditions (dict): Environmental conditions like fog density
-            
+
         Returns:
             tuple: (detected, detecting_sensors, detections_by_type)
                 detected (bool): Whether the object was detected
@@ -1118,14 +1186,14 @@ class SimulationRunner:
                                             seed=42, environment_conditions=None):
         """
         Run a fixed number of Monte Carlo simulation iterations using sensor fusion for detection decisions.
-        
+
         Args:
             sensor_configs (list): List of sensor configurations
             num_objects (int): Number of objects to place in the simulation
             num_iterations (int): Number of simulation iterations to run
             seed (int): Random seed for reproducibility
             environment_conditions (dict): Environmental conditions like fog density
-            
+
         Returns:
             dict: Simulation results
         """
@@ -1283,12 +1351,12 @@ class VisualizationUtils:
                            fog_levels=[0.0, 0.3, 0.6, 0.9], num_iterations=1000):
         """
         Visualize the effect of fog on different sensor configurations.
-        
+
         Args:
             config_types (list): List of sensor configuration types to test
             fog_levels (list): List of fog density levels to test
             num_iterations (int): Number of simulation iterations to run
-            
+
         Returns:
             dict: Results of fog effect simulations
         """
@@ -1312,12 +1380,12 @@ class VisualizationUtils:
                 # Calculate sensor type percentages
                 sensor_type_percentages = {}
                 sensor_type_detections = {}
-                
+
                 # Extract sensor type detection counts from results
                 for iteration_data in result['all_iteration_data']:
                     for s_type, count in iteration_data.get('objects_detected_by_type', {}).items():
                         sensor_type_detections[s_type] = sensor_type_detections.get(s_type, 0) + count
-                
+
                 total_detections = sum(sensor_type_detections.values())
 
                 if total_detections > 0:
@@ -1509,7 +1577,7 @@ class VisualizationUtils:
     def plot_convergence(results_by_config):
         """
         Plot the convergence of detection rates over iterations.
-        
+
         Args:
             results_by_config (dict): Dictionary mapping configuration names to simulation results
         """
